@@ -1,6 +1,6 @@
 {
   "name": "zhiv-pomoshnik",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Жив Помощник: помага на посетителите на alive-garden.com да изберат продукт",
   "main": "server.js",
   "scripts": {
