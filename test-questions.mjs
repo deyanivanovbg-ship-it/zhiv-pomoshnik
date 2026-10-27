@@ -4,6 +4,7 @@ const API = process.argv[2] || 'https://zhiv-pomoshnik.onrender.com';
 
 const cases = [
   { q: 'Имам въшки по розите, какво да правя?', expect: /cards|карт/i },
+  { q: 'Имам листни въшки по розите, коя карта е за това?', expect: /1 Въшки|карта 1\b/i, avoid: /Листни буби/i },
   { q: 'Листата на доматите жълтеят', expect: /cards|карт|zhiva-gradina/i },
   { q: 'Торя редовно, но растенията остават слаби и почвата е твърда', expect: /zhiva-pochva/ },
   { q: 'Имам 10 кг домати, узрели наведнъж. Как да ги запазя?', expect: /zhiva-trapeza|50 SOS/i },
@@ -29,6 +30,7 @@ for (const c of cases) {
   const problems = [
     r.ok ? '' : `HTTP ${r.status}`,
     c.expect.test(answer) ? '' : 'липсва очакваното',
+    c.avoid && c.avoid.test(answer) ? 'грешна карта' : '',
     answer.includes('—') ? 'дълго тире' : '',
     /\*\*|^#/m.test(answer) ? 'markdown' : '',
     words > 120 ? `${words} думи` : '',
