@@ -10,6 +10,9 @@ const Anthropic = require('@anthropic-ai/sdk');
 
 const MODEL = 'claude-sonnet-5-5';
 const MOCK = process.env.MOCK === '1';
+const { version: VERSION } = require('./package.json');
+// По желание: адрес (напр. Google Sheet през Apps Script), където да отиват въпросите за постоянно
+const LOG_WEBHOOK_URL = process.env.LOG_WEBHOOK_URL || '';
 
 // Лимити срещу злоупотреба (публичен чат = всеки може да харчи от API ключа)
 const MAX_QUESTION_CHARS = 600;
@@ -101,7 +104,35 @@ function cleanMessages(body) {
 
 const FALLBACK = 'Не успях да отговоря точно сега. Опитай пак след малко или виж всички продукти на https://alive-garden.com';
 
-app.get('/', (req, res) => res.json({ ok: true, name: 'Жив Помощник' }));
+// Записва въпросите, за да виждаме какво питат хората (= какво ги боли). Без IP, телефоните и имейлите се заменят.
+// Логовете на Render се пазят 7 дни, затова с LOG_WEBHOOK_URL записът отива и там.
+function redact(text) {
+  return text
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[имейл]')
+    .replace(/\+?\d[\d\s\-().\/]{5,}\d/g, m => (m.replace(/\D/g, '').length >= 7 ? '[телефон]' : m));
+}
+function logQuestion(messages, answer) {
+  const users = messages.filter(m => m.role === 'user');
+  const record = {
+    t: new Date().toISOString(),
+    turn: users.length,
+    q: redact(users[users.length - 1].content),
+    first: users.length > 1 ? redact(users[0].content) : '',
+    links: [...new Set(answer.match(/https:\/\/alive-garden\.com[^\s,;)"]*/g) || [])].map(l => l.replace(/\.$/, '')),
+    a: answer.slice(0, 600),
+  };
+  console.log('въпрос ' + JSON.stringify(record));
+  if (LOG_WEBHOOK_URL) {
+    fetch(LOG_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+      signal: AbortSignal.timeout(10000),
+    }).catch(e => console.error('Лог webhook:', e.message));
+  }
+}
+
+app.get('/', (req, res) => res.json({ ok: true, name: 'Жив Помощник', version: VERSION }));
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.post(['/ask', '/chat'], async (req, res) => {
@@ -112,7 +143,9 @@ app.post(['/ask', '/chat'], async (req, res) => {
   }
 
   if (MOCK) {
-    return res.json({ answer: `Тестов отговор. Питаш: "${messages[messages.length - 1].content}". За вредители виж картите: https://alive-garden.com/cards` });
+    const answer = `Тестов отговор. Питаш: "${messages[messages.length - 1].content}". За вредители виж картите: https://alive-garden.com/cards`;
+    logQuestion(messages, answer);
+    return res.json({ answer });
   }
 
   try {
@@ -130,14 +163,19 @@ app.post(['/ask', '/chat'], async (req, res) => {
       messages,
     });
 
-    if (response.stop_reason === 'refusal') return res.json({ answer: FALLBACK });
+    if (response.stop_reason === 'refusal') {
+      logQuestion(messages, FALLBACK);
+      return res.json({ answer: FALLBACK });
+    }
     // Махни случайни остатъци (*/, **) и дълги тирета, ако моделът ги изпусне
     const answer = response.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
-      .replace(/\*\/|\/\*|\*\*/g, '').replace(/—/g, '-').trim();
+      .replace(/\*\/|\/\*|\*\*/g, '').replace(/—/g, '-').trim() || FALLBACK;
     const u = response.usage || {};
-    console.log(`ask ip=${req.ip} in=${u.input_tokens} cache_read=${u.cache_read_input_tokens} out=${u.output_tokens}`);
-    res.json({ answer: answer || FALLBACK });
+    console.log(`ask in=${u.input_tokens} cache_read=${u.cache_read_input_tokens} out=${u.output_tokens}`);
+    logQuestion(messages, answer);
+    res.json({ answer });
   } catch (error) {
+    logQuestion(messages, FALLBACK);
     if (error instanceof Anthropic.RateLimitError) {
       console.error('Rate limit от API');
       return res.status(503).json({ answer: 'Много хора питат в момента. Опитай пак след минута.' });
