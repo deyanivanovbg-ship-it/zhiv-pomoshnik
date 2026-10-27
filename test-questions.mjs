@@ -35,6 +35,7 @@ for (const c of cases) {
     c.expect.test(answer) ? '' : 'липсва очакваното',
     c.avoid && c.avoid.test(answer) ? 'грешна карта' : '',
     answer.includes('—') ? 'дълго тире' : '',
+    /човекът|потребителят|посетителят|няма нужда да питам/i.test(answer) ? 'мета коментар' : '',
     /\*\*|^#/m.test(answer) ? 'markdown' : '',
     words > 120 ? `${words} думи` : '',
     /https?:\/\/(?!(www\.)?alive-garden\.com)/.test(answer) ? 'чужд линк' : '',
